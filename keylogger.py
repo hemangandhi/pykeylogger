@@ -1,5 +1,4 @@
-# Copyright (c) 2011, Andrew Moffat
-# All rights reserved.
+#! /usr/bin/env python3
 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -157,7 +156,8 @@ def fetch_keys():
 
     # check modifier states (ctrl, alt, shift keys)
     modifier_state = {}
-    for mod, (i, byte) in modifiers.iteritems():
+    for mod in modifiers:
+        i, byte = modifiers[mod]
         modifier_state[mod] = bool(ord(keypresses_raw[i]) & byte)
     
     # shift pressed?
@@ -175,8 +175,9 @@ def fetch_keys():
     pressed = []
     for i, k in enumerate(keypresses_raw):
         o = ord(k)
-        if o:
-            for byte,key in key_mapping.get(i, {}).iteritems():
+        if o and i in key_mapping:
+            for byte in key_mapping[i]:
+                key = key_mapping[i][byte]
                 if byte & o:
                     if isinstance(key, tuple): key = key[shift or caps_lock_state]
                     pressed.append(key)
@@ -212,6 +213,6 @@ def log(done, callback, sleep_interval=.005):
 if __name__ == "__main__":
     now = time()
     done = lambda: time() > now + 60
-    def print_keys(t, modifiers, keys): print "%.2f   %r   %r" % (t, keys, modifiers)
+    def print_keys(t, modifiers, keys): print("{:.2f}   {!r}   {!r}".format(t, keys, modifiers))
 
     log(done, print_keys)
