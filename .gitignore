@@ -1,2 +1,6 @@
 *.pyc
 *.swp
+
+/__pycache__
+*.tar
+python-uinput-0.11.0
