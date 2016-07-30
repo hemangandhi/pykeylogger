@@ -33,8 +33,6 @@ from ctypes.util import find_library
 assert("linux" in sys.platform)
 
 
-x11 = ct.cdll.LoadLibrary(find_library("X11"))
-display = x11.XOpenDisplay(None)
 
 
 # this will hold the keyboard state.  32 bytes, with each
@@ -143,15 +141,15 @@ key_mapping = {
 
 
 
-def fetch_keys_raw():
+def fetch_keys_raw(x11, display):
     x11.XQueryKeymap(display, keyboard)
     return keyboard
 
 
 
-def fetch_keys():
+def fetch_keys(x11, display):
     global caps_lock_state, last_pressed, last_pressed_adjusted, last_modifier_state
-    keypresses_raw = fetch_keys_raw()
+    keypresses_raw = fetch_keys_raw(x11, display)
 
 
     # check modifier states (ctrl, alt, shift keys)
@@ -199,20 +197,18 @@ def fetch_keys():
     return state_changed, modifier_state, pressed
 
 
-
-
-def log(done, callback, sleep_interval=.005):
+def log(done, callback, x11, display, sleep_interval=.005):
     while not done():
         sleep(sleep_interval)
-        changed, modifiers, keys = fetch_keys()
+        changed, modifiers, keys = fetch_keys(x11, display)
         if changed: callback(time(), modifiers, keys)
 
-
-
-
 if __name__ == "__main__":
+    x11 = ct.cdll.LoadLibrary(find_library("X11"))
+    display = x11.XOpenDisplay(None)
+
     now = time()
     done = lambda: time() > now + 60
     def print_keys(t, modifiers, keys): print("{:.2f}   {!r}   {!r}".format(t, keys, modifiers))
 
-    log(done, print_keys)
+    log(done, print_keys, x11)
