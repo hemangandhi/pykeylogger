@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 import time
+from itertools import takewhile
 from collections import deque
 from keylogger import log
 import ctypes as ct
@@ -37,83 +38,76 @@ class XEvent(ct.Union):
 x11 = ct.cdll.LoadLibrary(find_library("X11"))
 display = x11.XOpenDisplay(None)
 
-dir_keymap = {
-        "h": (-1, 0),
-        "j": (0, 1),
-        "k": (0, -1),
-        "l": (1, 0)}
-
-left_click = "i"
-right_click = "v"
-done = "<esc>"
-
-def get_window(xevent):
-    xevent.xbutton.subwindow = x11.XDefaultRootWindow(display)
-    xevent.xbutton.window = xevent.xbutton.subwindow
-
-def do_move(amt, dir):
-    mov_vec = tuple(map(lambda x: x * amt, dir_keymap[dir]))
-    x11.XWarpPointer(display, None, None, 0, 0, 0, 0, mov_vec[0], mov_vec[1])
-
-def do_press(click_char):
-    evt = XEvent(type = 3)
-    evt.xbutton.button = 1 if click_char == left_click else 2
-    evt.xbutton.same_screen = True
-    get_window(evt)
-    evt.type = 4
-    return x11.XSendEvent(display, 0, True, 4, ct.byref(evt))
-
-def do_release(click_char):
-    evt = XEvent(type = 3)
-    evt.xbutton.button = 1 if click_char == left_click else 2
-    evt.xbutton.same_screen = True
-    get_window(evt)
-    evt.type = 5
-    return x11.XSendEvent(display, 0, True, 4, ct.byref(evt))
-
-def do_click(amt, char):
-    for i in range(amt):
-        do_press(char)
-        do_release(char)
-
-class CommandStateWrapper:
-    def __init__(self):
+class CommandReader:
+    def __init__(self, handler):
+        self.handler = handler
         self.cache = deque()
         self.done = False
 
-    def do_one_cmd(self, cmd, num):
-        if len(num) <= 0: 
-            val = 1
+    def __call__(self, time, mods, key):
+        if key in self.handler:
+            self.done = self.handler(self.cache, key)
+            self.cache.clear()
         else:
-            val = int(num)
-        if cmd in dir_keymap:
-            do_move(val, cmd)
-        elif cmd in [left_click, right_click]:
-            do_click(val, cmd)
-
-    def read_destroy_cache(self):
-        num_acc = ""
-        while len(self.cache) > 0:
-            val = self.cache.popleft()
-            if not val.isdigit():
-                self.do_one_cmd(val, num_acc)
-                num_acc = ""
-            else:
-                num_acc += val
-
-    def next_char(self, char):
-        if char is None:
-            return
-        if char != done:
-            self.cache.append(char)
-            if not char.isdigit():
-                self.read_destroy_cache()
-        else:
-            self.done = True
+            self.cache.append((key, mods))
 
     def __bool__(self):
         return self.done
 
+class DefaultHandler:
+    @staticmethod
+    def get_window(xevent):
+        xevent.xbutton.subwindow = x11.XDefaultRootWindow(display)
+        xevent.xbutton.window = xevent.xbutton.subwindow
+
+    @staticmethod
+    def do_move(amt, dir):
+        mov_vec = tuple(map(lambda x: x * amt, dir))
+        x11.XWarpPointer(display, None, None, 0, 0, 0, 0, mov_vec[0], mov_vec[1])
+
+    @staticmethod
+    def do_press(click_char):
+        evt = XEvent(type = 3)
+        evt.xbutton.button = 1 if click_char else 2
+        evt.xbutton.same_screen = True
+        DefaultHandler.get_window(evt)
+        evt.type = 4
+        return x11.XSendEvent(display, 0, True, 4, ct.byref(evt))
+
+    @staticmethod
+    def do_release(click_char): #True for left click
+        evt = XEvent(type = 3)
+        evt.xbutton.button = 1 if click_char else 2
+        evt.xbutton.same_screen = True
+        DefaultHandler.get_window(evt)
+        evt.type = 5
+        return x11.XSendEvent(display, 0, True, 4, ct.byref(evt))
+
+    @staticmethod
+    def do_click(amt, char):
+        for i in range(amt):
+            DefaultHandler.do_press(char)
+            DefaultHandler.do_release(char)
+
+    def __contains__(self, key):
+        return key in list('hjkliv') + ['<esc>']
+
+    def __call__(self, cache, key):
+        amt = (''.join(takewhile(str.isdigit, map(lambda x: x[0], cache))))
+        if len(amt) > 0:
+            amt = int(amt)
+        else:
+            amt = 1
+        if key in 'hjkl':
+            DefaultHandler.do_move(amt, {
+                "h": (-1, 0),
+                "j": (0, 1),
+                "k": (0, -1),
+                "l": (1, 0)}[key])
+        elif key in 'iv':
+            DefaultHandler.do_click(amt, key == 'i')
+        return key == '<esc>'
+
 if __name__ == "__main__":
-    csw = CommandStateWrapper()
-    log(csw.__bool__, lambda t, m, k: csw.next_char(k), x11, display)
+    cmd = CommandReader(DefaultHandler())
+    log(lambda : cmd, cmd, x11, display)
